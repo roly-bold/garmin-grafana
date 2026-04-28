@@ -77,6 +77,9 @@ curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=CREATE DATABAS
 curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=CREATE USER influxdb_user WITH PASSWORD 'influxdb_secret_password'" || true
 curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=GRANT ALL ON GarminStats TO influxdb_user" || true
 
+echo "=== Reset Grafana Admin Password ==="
+/usr/share/grafana/bin/grafana cli --config /etc/grafana/grafana.ini --homepath /usr/share/grafana admin reset-admin-password admin 2>/dev/null || true
+
 echo "=== Starting Grafana ==="
 /usr/share/grafana/bin/grafana server \
   --config=/etc/grafana/grafana.ini \
