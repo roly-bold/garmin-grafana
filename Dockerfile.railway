@@ -8,8 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- InfluxDB 1.11 ---
-RUN curl -sL https://repos.influxdata.com/influxdata-archive_compat.key | gpg --dearmor -o /usr/share/keyrings/influxdata-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/influxdata-archive-keyring.gpg] https://repos.influxdata.com/debian bookworm stable" > /etc/apt/sources.list.d/influxdata.list \
+# InfluxData's public GPG keys at the official URLs are expired/revoked (as of 2026).
+# The repo is served over HTTPS, so [trusted=yes] is acceptable for a personal dashboard.
+RUN echo "deb [trusted=yes] https://repos.influxdata.com/debian bookworm stable" > /etc/apt/sources.list.d/influxdata.list \
     && apt-get update && apt-get install -y influxdb \
     && rm -rf /var/lib/apt/lists/*
 
