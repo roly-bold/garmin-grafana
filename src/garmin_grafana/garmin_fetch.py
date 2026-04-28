@@ -191,6 +191,24 @@ def garmin_login():
             logging.error(str(err))
             raise Exception("Garmin login failed after credential/MFA attempt")
 
+    # Workaround: garminconnect 0.3.2 may fail to extract display_name from
+    # Garmin's social-profile response, leaving it unset even when the account
+    # has a display name configured.  Without it every data call raises
+    # "Display name is not set".  Pull from client.profile (already fetched
+    # during authentication) as a fallback.
+    if not garmin.display_name:
+        profile = getattr(garmin.client, "profile", {}) or {}
+        fallback = profile.get("displayName") or profile.get("userName")
+        if fallback:
+            garmin.display_name = fallback
+            logging.info("Set display_name from profile fallback: %s", fallback)
+
+    if not garmin.display_name:
+        logging.warning(
+            "Could not determine Garmin display_name. Data calls will fail. "
+            "Set a display name at https://connect.garmin.com"
+        )
+
     return garmin
 
 
