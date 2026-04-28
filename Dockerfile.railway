@@ -1,0 +1,95 @@
+# Railway 单容器部署 - 整合 influxdb + grafana + garmin-fetch-data
+# Vercel 不支持本项目的 Docker 架构，Railway 单容器方案
+
+FROM python:3.13-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget gnupg curl apt-transport-https procps netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- InfluxDB 1.11 ---
+RUN curl -sL https://repos.influxdata.com/influxdata-archive_compat.key | gpg --dearmor > /etc/apt/trusted.gpg.d/influxdata-archive.gpg \
+    && echo "deb https://repos.influxdata.com/debian bookworm stable" > /etc/apt/sources.list.d/influxdata.list \
+    && apt-get update && apt-get install -y influxdb \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Grafana OSS + heatmap plugin ---
+RUN wget -q -O /usr/share/keyrings/grafana.key https://apt.grafana.com/gpg.key \
+    && echo "deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main" > /etc/apt/sources.list.d/grafana.list \
+    && apt-get update && apt-get install -y grafana \
+    && grafana cli plugins install marcusolsson-hourly-heatmap-panel \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Python deps ---
+WORKDIR /app
+RUN pip install --no-cache-dir uv
+COPY pyproject.toml uv.lock ./
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git \
+    && uv sync --locked \
+    && apt-get purge -y build-essential git && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+COPY src /app/
+
+# --- Grafana provisioning ---
+COPY Grafana_Datasource /etc/grafana/provisioning/datasources
+COPY Grafana_Dashboard /etc/grafana/provisioning/dashboards
+# Fix datasource URL for localhost (single container)
+RUN sed -i 's|http://influxdb:8086|http://127.0.0.1:8086|g' /etc/grafana/provisioning/datasources/*.yaml
+
+# --- Env ---
+ENV INFLUXDB_DATA_INDEX_VERSION=tsi1 \
+    INFLUXDB_DB=GarminStats \
+    INFLUXDB_USER=influxdb_user \
+    INFLUXDB_USER_PASSWORD=influxdb_secret_password \
+    INFLUXDB_HTTP_BIND_ADDRESS=:8086 \
+    INFLUXDB_REPORTING_DISABLED=true \
+    GF_SECURITY_ADMIN_USER=admin \
+    GF_SECURITY_ADMIN_PASSWORD=admin \
+    GF_SERVER_HTTP_PORT=3000 \
+    INFLUXDB_HOST=127.0.0.1 \
+    INFLUXDB_PORT=8086 \
+    INFLUXDB_USERNAME=influxdb_user \
+    INFLUXDB_PASSWORD=influxdb_secret_password \
+    INFLUXDB_DATABASE=GarminStats \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+# --- Startup script ---
+COPY <<'STARTUP' /start.sh
+#!/bin/bash
+set -e
+
+echo "=== Starting InfluxDB ==="
+influxd &
+sleep 3
+for i in $(seq 1 30); do
+  if curl -s http://127.0.0.1:8086/ping > /dev/null 2>&1; then
+    echo "InfluxDB ready"
+    break
+  fi
+  sleep 1
+done
+
+echo "=== Init InfluxDB ==="
+curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=CREATE DATABASE GarminStats" || true
+curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=CREATE USER influxdb_user WITH PASSWORD 'influxdb_secret_password'" || true
+curl -s -X POST "http://127.0.0.1:8086/query" --data-urlencode "q=GRANT ALL ON GarminStats TO influxdb_user" || true
+
+echo "=== Starting Grafana ==="
+/usr/share/grafana/bin/grafana server \
+  --config=/etc/grafana/grafana.ini \
+  --homepath=/usr/share/grafana \
+  cfg:default.paths.data=/var/lib/grafana \
+  cfg:default.paths.logs=/var/log/grafana \
+  cfg:default.paths.plugins=/var/lib/grafana/plugins \
+  cfg:default.paths.provisioning=/etc/grafana/provisioning &
+
+sleep 5
+echo "=== Starting Garmin Fetch ==="
+exec python /app/garmin_grafana/garmin_fetch.py
+STARTUP
+RUN chmod +x /start.sh
+
+EXPOSE 3000 8086
+CMD ["/start.sh"]

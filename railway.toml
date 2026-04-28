@@ -1,0 +1,19 @@
+# Railway 部署配置 - garmin-grafana 中文化版本
+#
+# 部署步骤:
+# 1. 在 https://railway.app 创建新项目，选择 "Deploy from GitHub repo"
+# 2. 关联此仓库
+# 3. 在 Variables 中添加:
+#    GARMINCONNECT_EMAIL=你的Garmin邮箱
+#    GARMINCONNECT_BASE64_PASSWORD=你的密码的Base64编码
+#    PORT=3000
+# 4. Railway 自动检测 railway.toml 并使用 Dockerfile.railway 构建
+# 5. 部署完成后访问 Railway 提供的 URL (端口 3000)
+#
+# 注意: Vercel 不支持 Docker 容器，只能部署到 Railway
+
+[build]
+dockerfilePath = "Dockerfile.railway"
+
+[deploy]
+restartPolicyType = "always"
